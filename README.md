@@ -1,24 +1,23 @@
 # Forsyth Business
 
-React Native / Expo iPhone beta for estimates, invoices, expenses, jobs, and mileage.
+React Native / Expo iPhone beta using the approved v18 prototype as its reference.
 
-## TestFlight setup
+## Build
 
-Use Expo Launch with this public repository. Connect your Expo account and select your existing Apple app.
+Use Expo Launch with the correction branch after review. Reuse the existing Expo account and Apple listing.
 
-- iOS Bundle ID: `com.johnforsyth.forsythbusiness`
-- App Store Connect app ID: `6817920131`
-- App version: `1.0.0`
+- Bundle ID: com.johnforsyth.forsythbusiness
+- App Store Connect ID: 6817920131
 
-## Development
+## Development and verification
 
 ```sh
 npm ci
+node tests/data.test.mjs
 npx expo start
+npx expo export --platform ios
 ```
 
-## Beta status
+The first-run workspace is empty. Personal contact, registration and financial details belong in the app, not this public repository. Existing local records use the same storage key as the installed beta.
 
-The first-run workspace is empty. Enter your business contact and tax details and rates in settings. Customer data and financial records are stored locally on the device and are not committed to this repository.
-
-Assistant and banking connections are unfinished. Cloud synchronization and phone contacts import are not implemented. JavaScript iOS bundling passed; native signing, device testing, and TestFlight upload are still pending.
+Cloud sign-in, optional automatic backup, manual restore, selected phone-contact import, v18 data import, native PDF sharing and file exports are implemented. See docs/VALIDATION.md for tested behavior and device checks still required. Automatic backup is one-way; assistant and banking integrations are unfinished. No replacement has been uploaded to TestFlight from this branch yet.

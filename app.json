@@ -28,7 +28,8 @@
         {
           "contactsPermission": "Forsyth Business imports the customer contact you select for a job."
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }

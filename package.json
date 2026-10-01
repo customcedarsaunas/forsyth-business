@@ -7,21 +7,30 @@
     "start": "expo start",
     "ios": "expo start --ios",
     "android": "expo start --android",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test": "node tests/data.test.mjs",
+    "test:ui": "node tests/ui.smoke.cjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@supabase/supabase-js": "2.117.2",
     "expo": "~57.0.0",
+    "expo-asset": "~57.0.18",
     "expo-contacts": "~57.0.5",
     "expo-document-picker": "*",
+    "expo-file-system": "~57.0.7",
     "expo-image-picker": "*",
     "expo-location": "*",
     "expo-print": "*",
     "expo-secure-store": "*",
     "expo-sharing": "*",
     "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-url-polyfill": "3.0.0"
+    "react-native-url-polyfill": "3.0.0",
+    "react-native-web": "~0.21.0"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
   }
 }
