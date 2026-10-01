@@ -6,3 +6,5 @@ dist/
 *.p12
 *.mobileprovision
 credentials.json
+
+dist-*/

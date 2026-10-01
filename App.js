@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
 import {SafeAreaView,View,Text,ScrollView,TouchableOpacity,Modal,Alert,StyleSheet,StatusBar} from "react-native";
+import {Contact} from "expo-contacts";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import {loadState,saveState,resetState} from "./src/lib/store";
@@ -7,7 +8,7 @@ import {money,documentTotals,jobSummary,yearSummary,round2} from "./src/lib/calc
 import {shareDocument} from "./src/lib/pdf";
 import {H1,H2,Small,Card,Button,Field,Chip,Row,Pill,C,s} from "./src/components/ui";
 
-const TABS=["Home","Jobs","Sales","Expenses","Mileage","Reports","More"];
+const TABS=["Home","Invoices","Estimates","Expenses","Tax","More"];
 const today=()=>new Date().toISOString().slice(0,10);
 
 export default function App(){
@@ -16,18 +17,20 @@ export default function App(){
   useEffect(()=>{if(state)saveState(state)},[state]);
   if(!state) return <SafeAreaView style={styles.center}><Text>Loading Forsyth Business…</Text></SafeAreaView>;
   const brand=state.brands.find(b=>b.id===state.activeBrandId)||state.brands[0];
+  const outstanding=state.documents.filter(d=>d.type==="invoice").reduce((sum,d)=>sum+Math.max(0,documentTotals(d,state.settings).balance),0);
   return <SafeAreaView style={styles.safe}>
     <StatusBar barStyle="dark-content"/>
+    <View style={styles.owedBar}><Text style={styles.owedLabel}>TOTAL OWED TO YOU</Text><Text style={styles.owedAmount}>{money(outstanding)}</Text></View>
     <View style={styles.header}><View><Text style={styles.brandTag}>{brand.division}</Text><Text style={styles.brandName}>{brand.displayName}</Text></View>
       <TouchableOpacity onPress={()=>setModal({kind:"brand"})} style={styles.switch}><Text style={styles.switchTxt}>Switch</Text></TouchableOpacity></View>
     <ScrollView contentContainerStyle={styles.content}>
       {tab==="Home"&&<Home state={state} setModal={setModal} setTab={setTab}/>}
       {tab==="Jobs"&&<Jobs state={state} setModal={setModal}/>}
-      {tab==="Sales"&&<Sales state={state} setState={setState} setModal={setModal}/>}
+      {(tab==="Invoices"||tab==="Estimates")&&<Sales state={state} setState={setState} setModal={setModal} type={tab==="Invoices"?"invoice":"estimate"}/>}
       {tab==="Expenses"&&<Expenses state={state} setModal={setModal}/>}
       {tab==="Mileage"&&<Mileage state={state} setState={setState} setModal={setModal}/>}
-      {tab==="Reports"&&<Reports state={state}/>}
-      {tab==="More"&&<More state={state} setState={setState} setModal={setModal}/>}
+      {tab==="Tax"&&<Reports state={state}/>}
+      {tab==="More"&&<More state={state} setState={setState} setModal={setModal} setTab={setTab}/>}
     </ScrollView>
     <View style={styles.nav}>{TABS.map(x=><TouchableOpacity key={x} style={styles.navCell} onPress={()=>setTab(x)}><Text style={[styles.navText,tab===x&&styles.navOn]}>{x}</Text></TouchableOpacity>)}</View>
     {modal&&<ModalRouter state={state} setState={setState} modal={modal} close={()=>setModal(null)}/>}
@@ -35,24 +38,23 @@ export default function App(){
 }
 
 function Home({state,setModal,setTab}){
- const y=yearSummary(state);
- const active=state.jobs.filter(j=>j.status==="active");
+ const brand=state.brands.find(b=>b.id===state.activeBrandId)||state.brands[0];
+ const brandJobs=new Set(state.jobs.filter(j=>j.brandId===brand.id).map(j=>j.id));
+ const invoices=state.documents.filter(d=>d.type==="invoice"&&brandJobs.has(d.jobId));
+ const received=invoices.reduce((sum,d)=>sum+documentTotals(d,state.settings).paid,0);
+ const expenses=state.expenses.filter(e=>brandJobs.has(e.jobId)).reduce((sum,e)=>sum+(Number(e.netAmount??e.amount??0)+Number(e.gst||0)+Number(e.pst||0)),0);
  return <>
-  <H1>Today</H1><Small>Quotes, invoices, job costs and year-end numbers without digging through accounting menus.</Small>
-  <View style={styles.metricGrid}>
-   <Metric label="Revenue" value={money(y.revenue)}/><Metric label="Business expenses" value={money(y.expenses)}/>
-   <Metric label="Net before tax" value={money(y.net)}/><Metric label="A/R outstanding" value={money(y.ar)}/>
+  <H1>{brand.displayName}</H1>
+  <Card style={{marginTop:18,borderRadius:18,padding:18}}>
+   <Row label="Revenue received" value={money(received)} bold/>
+   <Row label="Expenses" value={money(expenses)} bold/>
+   <Row label="Net" value={money(received-expenses)} bold/>
+  </Card>
+  <View style={{gap:18,marginTop:8}}>
+   <TouchableOpacity style={styles.primaryHomeAction} onPress={()=>setModal({kind:"doc",type:"invoice"})}><Text style={styles.homeActionText}>+ New Invoice</Text></TouchableOpacity>
+   <TouchableOpacity style={styles.secondaryHomeAction} onPress={()=>setModal({kind:"doc",type:"estimate"})}><Text style={styles.homeSecondaryText}>+ New Estimate</Text></TouchableOpacity>
+   <TouchableOpacity style={styles.secondaryHomeAction} onPress={()=>setModal({kind:"brand"})}><Text style={styles.homeSecondaryText}>Switch Company</Text></TouchableOpacity>
   </View>
-  <H2>Quick actions</H2>
-  <View style={styles.actions}>
-   <Action t="+ Invoice" f={()=>setModal({kind:"doc",type:"invoice"})}/><Action t="+ Estimate" f={()=>setModal({kind:"doc",type:"estimate"})}/>
-   <Action t="+ Change order" f={()=>setModal({kind:"doc",type:"change_order"})}/><Action t="+ Expense" f={()=>setModal({kind:"expense"})}/>
-   <Action t="+ Mileage" f={()=>setModal({kind:"mileage"})}/><Action t="+ Job" f={()=>setModal({kind:"job"})}/>
-  </View>
-  <H2>Active jobs</H2>
-  {active.map(j=><JobCard key={j.id} state={state} job={j}/>)}
-  <H2>Assistant</H2>
-  <Card><Text style={styles.cardTitle}>Command centre</Text><Small>Type a request in plain English. The production connection will let ChatGPT prepare actions against this same job data, with a review step before sending or posting.</Small><View style={{height:10}}/><Button title="Open assistant" kind="soft" onPress={()=>setModal({kind:"assistant"})}/></Card>
  </>;
 }
 
@@ -73,13 +75,15 @@ function JobCard({state,job,detailed}){
 }
 const Mini=({l,v})=><View style={{flex:1}}><Small>{l}</Small><Text style={{fontWeight:"900",fontSize:15,marginTop:3}}>{v}</Text></View>;
 
-function Sales({state,setState,setModal}){
- return <><H1>Sales</H1><Small>Estimates → acceptance → deposits → change orders → progress/final invoices.</Small>
+function Sales({state,setState,setModal,type}){
+ return <><H1>{type==="invoice"?"Invoices":"Estimates"}</H1><Small>Estimates → acceptance → deposits → change orders → progress/final invoices.</Small>
  <View style={[styles.actions,{marginTop:14}]}><Action t="+ Invoice" f={()=>setModal({kind:"doc",type:"invoice"})}/><Action t="+ Estimate" f={()=>setModal({kind:"doc",type:"estimate"})}/><Action t="+ Change" f={()=>setModal({kind:"doc",type:"change_order"})}/></View>
  <H2>Documents</H2>
- {state.documents.slice().reverse().map(d=><DocumentCard key={d.id} d={d} state={state} setState={setState}/>)}</>;
+ {state.documents.filter(d=>d.type===type&&d.brandId===state.activeBrandId).slice().reverse().map(d=><DocumentCard key={d.id} d={d} state={state} setState={setState} setModal={setModal}/>)}</>;
 }
-function DocumentCard({d,state,setState}){
+function DocumentCard({d,state,setState,setModal}){
+ const [paymentAmount,setPaymentAmount]=useState("");
+ const recordPayment=()=>{const amount=Number(paymentAmount);const balance=documentTotals(d,state.settings).balance;if(!Number.isFinite(amount)||amount<=0||amount>balance)return Alert.alert("Check payment","Enter a positive payment no larger than the balance.");const payments=[...(d.payments||[]),{id:String(Date.now()),date:today(),amount}];const updated={...d,payments,status:amount>=balance?"paid":"partial"};setState({...state,documents:state.documents.map(x=>x.id===d.id?updated:x)});setPaymentAmount("")};
  const job=state.jobs.find(j=>j.id===d.jobId),c=state.customers.find(x=>x.id===job?.customerId),t=documentTotals(d,state.settings);
  const statusTone=d.status==="paid"?"good":d.status==="draft"?"warn":"neutral";
  const doShare=async()=>{try{await shareDocument(state,d)}catch(e){Alert.alert("Could not create PDF",String(e.message||e))}};
@@ -94,7 +98,8 @@ function DocumentCard({d,state,setState}){
   <View style={styles.space}><View><Text style={styles.cardTitle}>{labelType(d.type)} {d.number}</Text><Small>{c?.name} · {job?.name}</Small></View><Pill text={d.status} tone={statusTone}/></View>
   <Text style={styles.bigMoney}>{money(t.total)}</Text><Small>Subtotal {money(t.subtotal)} · GST {money(t.gst)} · PST {money(t.pst)}</Small>
   {d.type==="invoice"&&<Small>Paid {money(t.paid)} · Balance {money(t.balance)}</Small>}
-  <View style={styles.inlineButtons}><Button title="PDF / Share" kind="soft" small onPress={doShare}/>{d.status==="draft"&&<Button title="Mark sent" small onPress={markSent}/>}
+  {d.type==="invoice"&&t.balance>0&&<><Field label="Payment received" value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="decimal-pad"/><Button title="Record payment" kind="soft" onPress={recordPayment}/></>}
+  <View style={styles.inlineButtons}><Button title="Edit" kind="soft" small onPress={()=>setModal({kind:"doc",type:d.type,id:d.id})}/><Button title="PDF / Share" kind="soft" small onPress={doShare}/>{d.status==="draft"&&<Button title="Mark sent" small onPress={markSent}/>}
    {d.type==="estimate"&&d.status==="sent"&&<Button title="Accept" small onPress={accept}/>}
    {d.type==="estimate"&&d.status==="accepted"&&<Button title="Make invoice" small onPress={invoiceFromEstimate}/>}</View>
  </Card>
@@ -139,8 +144,8 @@ function Reports({state}){
  <Card><Small>This is an operational tax summary. Before relying on the app as the only set of books, bank reconciliation, opening balances, asset/debt accounts, posting rules, and accountant-reviewed tax mappings need to be completed and tested.</Small></Card></>;
 }
 
-function More({state,setState,setModal}){
- return <><H1>More</H1>
+function More({state,setState,setModal,setTab}){
+ return <><H1>More</H1><View style={styles.actions}><Action t="Jobs" f={()=>setTab("Jobs")}/><Action t="Mileage" f={()=>setTab("Mileage")}/><Action t="Assistant" f={()=>setModal({kind:"assistant"})}/></View>
  <H2>Business profiles</H2>{state.brands.map(b=><Card key={b.id}><View style={styles.space}><View style={{flex:1}}><Text style={styles.cardTitle}>{b.displayName}</Text><Small>{b.legalName}</Small><Small>GST/HST {b.gstNumber||"—"} · PST {b.pstNumber||"not entered"}</Small></View><Button title="Edit" kind="soft" small onPress={()=>setModal({kind:"brandEdit",id:b.id})}/></View></Card>)}
  <H2>Pricing defaults</H2><Card><Row label="Your labour" value={`${money(state.settings.labourRate)}/hr`}/><Row label="Helper" value={`${money(state.settings.helperRate)}/hr`}/><Row label="Material markup" value={`${state.settings.defaultMaterialMarkupPct}%`}/><Row label="Mileage value" value={`${money(state.settings.mileageRate)}/km`}/></Card>
  <H2>Catalog & vendors</H2><Card><Row label="Reusable products/services" value={String(state.catalog.length)}/><Row label="Vendors" value={String(state.vendors.length)}/><Small>Catalog stores selling price, internal cost, tax treatment and supplier separately so customer PDFs never expose your cost.</Small></Card>
@@ -153,7 +158,7 @@ function ModalRouter({state,setState,modal,close}){
  const title={brand:"Choose business",doc:`New ${labelType(modal.type)}`,expense:"Add expense",mileage:"Log mileage",job:"New job",assistant:"Assistant",brandEdit:"Business profile"}[modal.kind]||"";
  return <Modal transparent animationType="slide" onRequestClose={close}><View style={styles.back}><View style={styles.sheet}><View style={styles.sheetHead}><Text style={styles.sheetTitle}>{title}</Text><TouchableOpacity onPress={close}><Text style={{fontWeight:"900"}}>Close</Text></TouchableOpacity></View><ScrollView contentContainerStyle={{paddingBottom:40}}>
   {modal.kind==="brand"&&<BrandPicker state={state} setState={setState} close={close}/>}
-  {modal.kind==="doc"&&<DocForm state={state} setState={setState} type={modal.type} close={close}/>}
+  {modal.kind==="doc"&&<DocForm state={state} setState={setState} type={modal.type} existing={state.documents.find(d=>d.id===modal.id)} close={close}/>}
   {modal.kind==="expense"&&<ExpenseForm state={state} setState={setState} close={close}/>}
   {modal.kind==="mileage"&&<MileageForm state={state} setState={setState} close={close} prefill={modal.prefill}/>}
   {modal.kind==="job"&&<JobForm state={state} setState={setState} close={close}/>}
@@ -163,22 +168,43 @@ function ModalRouter({state,setState,modal,close}){
 }
 function BrandPicker({state,setState,close}){return <>{state.brands.map(b=><TouchableOpacity key={b.id} style={styles.pickCard} onPress={()=>{setState({...state,activeBrandId:b.id});close()}}><View style={styles.fakeLogo}><Text style={{color:"#fff",fontWeight:"900"}}>{b.division==="Contracting"?"JFE":"CCS"}</Text></View><View><Text style={styles.cardTitle}>{b.displayName}</Text><Small>{b.division}</Small></View></TouchableOpacity>)}</>}
 
-function DocForm({state,setState,type,close}){
- const [jobId,setJobId]=useState(state.jobs[0]?.id),[title,setTitle]=useState(""),[desc,setDesc]=useState(""),[qty,setQty]=useState("1"),[rate,setRate]=useState(""),[cost,setCost]=useState("0"),[taxCode,setTaxCode]=useState(state.jobs[0]?.taxProfile==="EXEMPT"?"EXEMPT":"GST"),[deposit,setDeposit]=useState(type==="estimate"?"50":"0");
- const job=state.jobs.find(j=>j.id===jobId); useEffect(()=>{setTaxCode(job?.taxProfile==="EXEMPT"?"EXEMPT":"GST")},[jobId]);
- const save=()=>{if(!jobId||!desc||!Number(rate))return Alert.alert("Missing information","Choose a job and enter a description and price.");
+function DocForm({state,setState,type,close,existing}){
+ const activeJobs=state.jobs.filter(j=>j.brandId===state.activeBrandId);
+ const [jobId,setJobId]=useState(existing?.jobId||activeJobs[0]?.id||""),[title,setTitle]=useState(existing?.title||""),[notes,setNotes]=useState(existing?.notes||""),[contacts,setContacts]=useState((existing?.contacts||[]).map(c=>[c.name,c.role,c.email].filter(Boolean).join(" — ")).join("\n"));
+ const [items,setItems]=useState(existing?.items?.map(i=>({...i,qty:String(i.qty),unitPrice:String(i.unitPrice),internalCost:String(i.internalCost||0)}))||[{id:"1",description:"",qty:"1",unit:"ea",unitPrice:"",internalCost:"0",taxCode:activeJobs[0]?.taxProfile||"GST",notes:""}]);
+ const [plan,setPlan]=useState(existing?.paymentPlan||[100]),[customPlan,setCustomPlan]=useState(""),[deposit,setDeposit]=useState(String(existing?.depositPct??(type==="estimate"?50:0)));
+ const job=state.jobs.find(j=>j.id===jobId);
+ const update=(id,key,value)=>setItems(items.map(i=>i.id===id?{...i,[key]:value}:i));
+ const chooseJob=id=>{setJobId(id);const j=state.jobs.find(x=>x.id===id);setItems(items.map(i=>({...i,taxCode:j?.taxProfile||"GST"})))};
+ const save=()=>{
+  if(!job)return Alert.alert("Choose a job","Create a job under More first.");
+  if(items.some(i=>!i.description.trim()||!Number.isFinite(Number(i.qty))||Number(i.qty)<=0||!i.unitPrice.trim()||!Number.isFinite(Number(i.unitPrice))||Number(i.unitPrice)<0))return Alert.alert("Check line items","Each line needs a description, positive quantity and a valid price.");
+  let paymentPlan=plan;if(plan===null){paymentPlan=customPlan.split(/[\s,\/]+/).filter(Boolean).map(Number)}
+  if(!paymentPlan?.length||paymentPlan.some(n=>!Number.isFinite(n)||n<=0)||Math.abs(paymentPlan.reduce((a,b)=>a+b,0)-100)>.001)return Alert.alert("Check payment plan","Percentages must be positive and add up to 100.");
+  if(!Number.isFinite(Number(deposit))||Number(deposit)<0||Number(deposit)>100)return Alert.alert("Check deposit","Enter a percentage from 0 to 100.");
   const n=state.documents.filter(d=>d.type===type).length+1,prefix=type==="invoice"?state.settings.invoicePrefix:type==="estimate"?state.settings.estimatePrefix:state.settings.changePrefix;
-  const doc={id:String(Date.now()),type,number:`${prefix}-${String(n).padStart(4,"0")}`,jobId,brandId:job.brandId,status:"draft",date:today(),depositPct:Number(deposit)||0,title:title||desc,notes:"",items:[{id:"1",description:desc,qty:Number(qty)||1,unit:"ea",unitPrice:Number(rate)||0,internalCost:Number(cost)||0,taxCode}],payments:[]};
-  setState({...state,documents:[...state.documents,doc]});close();
+  const document={...existing,id:existing?.id||String(Date.now()),type,number:existing?.number||`${prefix}-${String(n).padStart(4,"0")}`,jobId,brandId:job.brandId,status:existing?.status||"draft",date:existing?.date||today(),depositPct:Number(deposit),paymentPlan,title:title||items[0].description,notes,contacts:contacts.split("\n").filter(x=>x.trim()).map(line=>{const p=line.split(/\s+[—-]\s+/);return {name:p[0]||"",role:p.length>2?p[1]:"",email:p.length>1?p[p.length-1]:""}}),items:items.map(i=>({...i,qty:Number(i.qty),unitPrice:Number(i.unitPrice),internalCost:Number(i.internalCost)||0})),payments:existing?.payments||[]};
+  setState({...state,documents:existing?state.documents.map(d=>d.id===existing.id?document:d):[...state.documents,document]});close();
  };
- return <><Text style={s.label}>Job</Text><View style={styles.wrap}>{state.jobs.map(j=><Chip key={j.id} text={j.name} active={jobId===j.id} onPress={()=>setJobId(j.id)}/>)}</View>
- <Field label="Document title" value={title} onChangeText={setTitle} placeholder="What is this for?"/>
- <Field label="Line description" value={desc} onChangeText={setDesc} placeholder="Work or material"/>
- <View style={styles.two}><View style={{flex:1}}><Field label="Quantity" value={qty} onChangeText={setQty} keyboardType="decimal-pad"/></View><View style={{flex:1}}><Field label="Selling price / unit" value={rate} onChangeText={setRate} keyboardType="decimal-pad"/></View></View>
- <Field label="Internal cost / unit (hidden from customer)" value={cost} onChangeText={setCost} keyboardType="decimal-pad"/>
- <Text style={s.label}>Tax</Text><View style={styles.wrap}>{["GST","GST_PST","PST","EXEMPT"].map(x=><Chip key={x} text={x==="GST_PST"?"GST + PST":x} active={taxCode===x} onPress={()=>setTaxCode(x)}/>)}</View>
- {type==="estimate"&&<Field label="Deposit requested %" value={deposit} onChangeText={setDeposit} keyboardType="decimal-pad"/>}
- <Button title="Save draft" onPress={save}/></>;
+ return <><Text style={s.label}>Job</Text><View style={styles.wrap}>{activeJobs.map(j=><Chip key={j.id} text={j.name} active={jobId===j.id} onPress={()=>chooseJob(j.id)}/>)}</View>
+ <Field label="Document title" value={title} onChangeText={setTitle}/>
+ {items.map((i,index)=><Card key={i.id}><H2>Line {index+1}</H2>
+ <Field label="Description" value={i.description} onChangeText={v=>update(i.id,"description",v)}/>
+ <Field label="Quantity" value={i.qty} keyboardType="decimal-pad" onChangeText={v=>update(i.id,"qty",v)}/>
+ <Field label="Unit" value={i.unit} placeholder="ea, km, hours, days" onChangeText={v=>update(i.id,"unit",v)}/>
+ <Field label="Price per unit" value={i.unitPrice} keyboardType="decimal-pad" onChangeText={v=>update(i.id,"unitPrice",v)}/>
+ <View style={styles.wrap}><Chip text="Hourly default" onPress={()=>setItems(items.map(x=>x.id===i.id?{...x,unit:"hours",unitPrice:String(state.settings.labourRate)}:x))}/><Chip text="Mileage default" onPress={()=>setItems(items.map(x=>x.id===i.id?{...x,unit:"km",unitPrice:String(state.settings.mileageRate)}:x))}/></View>
+ <Field label="Internal cost per unit" value={i.internalCost} keyboardType="decimal-pad" onChangeText={v=>update(i.id,"internalCost",v)}/>
+ <Field label="Line notes" value={i.notes||""} multiline onChangeText={v=>update(i.id,"notes",v)}/>
+ <View style={styles.wrap}>{["GST","GST_PST","PST","EXEMPT"].map(t=><Chip key={t} text={t==="GST_PST"?"GST + PST":t} active={i.taxCode===t} onPress={()=>update(i.id,"taxCode",t)}/>)}</View>
+ {items.length>1&&<Button title="Remove line" kind="danger" onPress={()=>setItems(items.filter(x=>x.id!==i.id))}/>}</Card>)}
+ <Button title="Add line" kind="soft" onPress={()=>setItems([...items,{id:String(Date.now()),description:"",qty:"1",unit:"ea",unitPrice:"",internalCost:"0",notes:"",taxCode:job?.taxProfile||"GST"}])}/>
+ <H2>Payment plan</H2><View style={styles.wrap}>{[[100],[50,50],[35,35,30],[50,40,10]].map(p=><Chip key={p.join("/")} text={p.join("/")} active={JSON.stringify(plan)===JSON.stringify(p)} onPress={()=>setPlan(p)}/>)}<Chip text="Custom" active={plan===null} onPress={()=>{setCustomPlan((plan||[100]).join("/"));setPlan(null)}}/></View>
+ {plan===null&&<Field label="Payment percentages" value={customPlan} placeholder="50/40/10" onChangeText={setCustomPlan}/>}
+ <Field label="Deposit requested %" value={deposit} keyboardType="decimal-pad" onChangeText={setDeposit}/>
+ <Field label="Additional contacts" value={contacts} multiline placeholder="Name — Role — email" onChangeText={setContacts}/>
+ <Field label="Document notes" value={notes} multiline onChangeText={setNotes}/>
+ <Button title={existing?"Save changes":"Save draft"} onPress={save}/></>;
 }
 
 function ExpenseForm({state,setState,close}){
@@ -196,9 +222,11 @@ function MileageForm({state,setState,close,prefill}){
  return <><Field label="Kilometres" value={km} onChangeText={setKm} keyboardType="decimal-pad"/><Field label="Purpose" value={purpose} onChangeText={setPurpose}/><Text style={s.label}>Job</Text><View style={styles.wrap}>{state.jobs.map(j=><Chip key={j.id} text={j.name} active={jobId===j.id} onPress={()=>setJobId(j.id)}/>)}</View><Button title="Save trip" onPress={save}/></>;
 }
 function JobForm({state,setState,close}){
+ const [email,setEmail]=useState(""),[phone,setPhone]=useState(""),[address,setAddress]=useState(""),[sourceContactId,setSourceContactId]=useState(null);
+ const importContact=async()=>{try{const c=await Contact.presentPicker();if(!c)return;const [name,emails,phones,addresses]=await Promise.all([c.getFullName(),c.getEmails(),c.getPhones(),c.getAddresses()]);setCustomer(name);setEmail(emails[0]?.address||"");setPhone(phones[0]?.number||"");const a=addresses[0];setAddress(a?[a.street,a.city,a.state||a.region,a.postcode,a.country].filter(Boolean).join(", "):"");setSourceContactId(c.id)}catch(error){Alert.alert("Contact import unavailable",String(error.message||error))}};
  const [name,setName]=useState(""),[customer,setCustomer]=useState(""),[brandId,setBrandId]=useState(state.activeBrandId),[taxProfile,setTaxProfile]=useState("GST");
- const save=()=>{if(!name||!customer)return Alert.alert("Enter a job and customer");const cid=String(Date.now())+"c",jid=String(Date.now())+"j";setState({...state,customers:[...state.customers,{id:cid,name:customer,email:"",phone:"",notes:""}],jobs:[...state.jobs,{id:jid,customerId:cid,brandId,name,status:"active",taxProfile,site:"",notes:"",budget:0,startDate:today()}]});close()};
- return <><Field label="Job name" value={name} onChangeText={setName} placeholder="e.g. Smith deck"/><Field label="Customer" value={customer} onChangeText={setCustomer}/><Text style={s.label}>Business</Text><View style={styles.wrap}>{state.brands.map(b=><Chip key={b.id} text={b.displayName} active={brandId===b.id} onPress={()=>setBrandId(b.id)}/>)}</View><Text style={s.label}>Tax profile</Text><View style={styles.wrap}>{["GST","GST_PST","EXEMPT"].map(x=><Chip key={x} text={x==="GST_PST"?"GST + PST":x} active={taxProfile===x} onPress={()=>setTaxProfile(x)}/>)}</View><Button title="Create job" onPress={save}/></>;
+ const save=()=>{if(!name||!customer)return Alert.alert("Enter a job and customer");const cid=String(Date.now())+"c",jid=String(Date.now())+"j";setState({...state,customers:[...state.customers,{id:cid,name:customer,email,phone,address,sourceContactId,notes:""}],jobs:[...state.jobs,{id:jid,customerId:cid,brandId,name,status:"active",taxProfile,site:"",notes:"",budget:0,startDate:today()}]});close()};
+ return <><Field label="Job name" value={name} onChangeText={setName} placeholder="e.g. Smith deck"/><Button title="Import from phone contacts" kind="soft" onPress={importContact}/><Field label="Customer" value={customer} onChangeText={setCustomer}/><Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none"/><Field label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad"/><Field label="Address" value={address} onChangeText={setAddress} multiline/><Text style={s.label}>Business</Text><View style={styles.wrap}>{state.brands.map(b=><Chip key={b.id} text={b.displayName} active={brandId===b.id} onPress={()=>setBrandId(b.id)}/>)}</View><Text style={s.label}>Tax profile</Text><View style={styles.wrap}>{["GST","GST_PST","EXEMPT"].map(x=><Chip key={x} text={x==="GST_PST"?"GST + PST":x} active={taxProfile===x} onPress={()=>setTaxProfile(x)}/>)}</View><Button title="Create job" onPress={save}/></>;
 }
 function AssistantForm({state,setState,close}){
  const [cmd,setCmd]=useState(""),[preview,setPreview]=useState(null);
@@ -220,8 +248,8 @@ function BrandEdit({state,setState,id,close}){
 }
 
 const styles=StyleSheet.create({
- safe:{flex:1,backgroundColor:C.bg},center:{flex:1,alignItems:"center",justifyContent:"center"},
- header:{backgroundColor:"#fff",paddingHorizontal:17,paddingVertical:11,borderBottomWidth:1,borderBottomColor:C.line,flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
+ owedBar:{backgroundColor:"#172033",paddingHorizontal:18,paddingVertical:10,flexDirection:"row",justifyContent:"space-between",alignItems:"center"},owedLabel:{color:"#fff",fontSize:12,fontWeight:"700"},owedAmount:{color:"#fff",fontSize:16,fontWeight:"800"},primaryHomeAction:{backgroundColor:"#315ce8",borderRadius:14,padding:16,alignItems:"center"},secondaryHomeAction:{backgroundColor:"#e8eaee",borderRadius:14,padding:16,alignItems:"center"},homeActionText:{color:"#fff",fontSize:16,fontWeight:"700"},homeSecondaryText:{color:"#303844",fontSize:16,fontWeight:"700"},safe:{flex:1,backgroundColor:C.bg},center:{flex:1,alignItems:"center",justifyContent:"center"},
+ header:{backgroundColor:"#e8eaee",paddingHorizontal:17,paddingVertical:11,borderBottomWidth:1,borderBottomColor:C.line,flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
  brandTag:{fontSize:10,fontWeight:"900",letterSpacing:1.1,color:C.muted,textTransform:"uppercase"},brandName:{fontSize:17,fontWeight:"900",color:C.ink},
  switch:{backgroundColor:C.soft,paddingHorizontal:12,paddingVertical:8,borderRadius:10},switchTxt:{fontWeight:"900",fontSize:12},
  content:{padding:17,paddingBottom:105},metricGrid:{flexDirection:"row",flexWrap:"wrap",gap:9,marginTop:15},metric:{width:"48%",marginBottom:0},metricVal:{fontSize:20,fontWeight:"900",marginTop:5},

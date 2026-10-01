@@ -10,7 +10,7 @@ export function documentHtml(state, doc){
   const job=state.jobs.find(j=>j.id===doc.jobId);
   const customer=state.customers.find(c=>c.id===job?.customerId);
   const t=documentTotals(doc,state.settings);
-  const rows=(doc.items||[]).map(i=>`<tr><td>${esc(i.description)}</td><td>${esc(i.qty)} ${esc(i.unit||"")}</td><td>${money(i.unitPrice)}</td><td>${money(Number(i.qty)*Number(i.unitPrice))}</td><td>${esc(i.taxCode||"EXEMPT")}</td></tr>`).join("");
+  const rows=(doc.items||[]).map(i=>`<tr><td>${esc(i.description)}${i.notes?`<div class="muted">${esc(i.notes)}</div>`:""}</td><td>${esc(i.qty)} ${esc(i.unit||"")}</td><td>${money(i.unitPrice)}</td><td>${money(Number(i.qty)*Number(i.unitPrice))}</td><td>${esc(i.taxCode||"EXEMPT")}</td></tr>`).join("");
   const logo=brand.logoUri ? `<img class="logo" src="${esc(brand.logoUri)}"/>` : "";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202a;padding:34px;font-size:12px}
@@ -22,11 +22,11 @@ export function documentHtml(state, doc){
   </style></head><body>
   <div class="top"><div>${logo}<div class="brand">${esc(brand.displayName)}</div><div>${esc(brand.email)} · ${esc(brand.phone)}</div><div>${esc(brand.website)}</div><div class="small">GST/HST: ${esc(brand.gstNumber||"")}${brand.pstNumber?` · PST: ${esc(brand.pstNumber)}`:""}</div></div>
   <div><h1>${typeLabel(doc.type)}</h1><div><strong>${esc(doc.number)}</strong></div><div class="muted">${esc(doc.date)}</div></div></div>
-  <div class="box"><strong>Bill to</strong><div>${esc(customer?.name||"")}</div><div>${esc(customer?.email||"")}</div><div>${esc(customer?.phone||"")}</div></div>
+  <div class="box"><strong>Bill to</strong><div>${esc(customer?.name||"")}</div><div>${esc(customer?.email||"")}</div><div>${esc(customer?.phone||"")}</div><div>${esc(customer?.address||"")}</div></div>
   <div class="box"><strong>${esc(doc.title||"")}</strong>${doc.notes?`<div class="muted">${esc(doc.notes)}</div>`:""}</div>
   <table><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th><th>Tax</th></tr></thead><tbody>${rows}</tbody></table>
   <div class="totals"><div><span>Subtotal</span><strong>${money(t.subtotal)}</strong></div><div><span>GST</span><span>${money(t.gst)}</span></div><div><span>PST</span><span>${money(t.pst)}</span></div><div class="grand"><span>Total</span><span>${money(t.total)}</span></div>${doc.type==="invoice"?`<div><span>Paid</span><span>${money(t.paid)}</span></div><div><span>Balance due</span><strong>${money(t.balance)}</strong></div>`:""}</div>
-  <div class="footer"><strong>Payment terms</strong><br>${esc(brand.defaultPaymentTerms||"")}<br><br><strong>Payment instructions</strong><br>${esc(brand.defaultPaymentInstructions||"")}</div>
+  <div class="footer"><strong>Payment terms</strong><br>${doc.paymentPlan?.length?`Payment stages: ${esc(doc.paymentPlan.join(" / "))}%<br>`:""}${doc.depositPct?`Deposit requested: ${esc(doc.depositPct)}%<br>`:""}${esc(brand.defaultPaymentTerms||"")}<br><br><strong>Payment instructions</strong><br>${esc(brand.defaultPaymentInstructions||"")}</div>
   </body></html>`;
 }
 export async function shareDocument(state, doc){
