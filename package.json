@@ -1,0 +1,24 @@
+{
+  "name": "forsyth-business",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "android": "expo start --android",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "expo": "~57.0.0",
+    "expo-document-picker": "*",
+    "expo-image-picker": "*",
+    "expo-location": "*",
+    "expo-print": "*",
+    "expo-secure-store": "*",
+    "expo-sharing": "*",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  }
+}

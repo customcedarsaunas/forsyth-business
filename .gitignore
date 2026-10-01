@@ -1,0 +1,8 @@
+node_modules/
+.expo/
+dist/
+.env*
+*.p8
+*.p12
+*.mobileprovision
+credentials.json
