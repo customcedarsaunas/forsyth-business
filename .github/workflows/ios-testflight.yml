@@ -48,5 +48,8 @@ jobs:
       - name: Verify Expo authentication
         run: eas whoami
 
+      - name: Link or create EAS project
+        run: eas init --account jforsythents-team --non-interactive
+
       - name: Build and submit to TestFlight
         run: eas build --platform ios --profile production --non-interactive --auto-submit
