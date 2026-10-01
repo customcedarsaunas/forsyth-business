@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+const calc=await fs.readFile('src/lib/calc.js','utf8');
+const module=(await fs.readFile('src/lib/assistantDrafts.js','utf8')).replace("import {nextDocumentNumber} from './calc';",calc);
+const {mergeAssistantDraftsResult}=await import('data:text/javascript;base64,'+Buffer.from(module).toString('base64'));
+const {SEED}=await import('data:text/javascript;base64,'+Buffer.from(await fs.readFile('src/data/seed.js','utf8')).toString('base64'));
+const row={id:'test-draft',user_id:'owner',payload:{customer:{name:'Test Customer'},job:{name:'Deck',brandId:'jfe'},document:{title:'Deck',status:'draft',type:'estimate',brandId:'jfe',date:'2026-10-01',items:[{description:'Replace deck',qty:1,unit:'job',unitPrice:3300,taxCode:'EXEMPT'}],paymentPlan:[100]}}};
+const original=JSON.stringify(SEED);const r=mergeAssistantDraftsResult(SEED,[row],'owner');assert.equal(r.added,1);assert.equal(r.errors.length,0);assert.equal(JSON.stringify(SEED),original);assert.equal(r.state.documents[0].number,'EST-0001');assert.equal(r.state.documents[0].status,'draft');assert.equal(r.state.documents[0].items[0].unitPrice,3300);
+const edited={...r.state,documents:r.state.documents.map(d=>({...d,title:'Edited on phone',items:[{...d.items[0],unitPrice:3500}]}))};assert.equal(mergeAssistantDraftsResult(edited,[row],'owner').state,edited,'poll must preserve edited records');
+const unmarked={...edited,receivedAssistantDrafts:[]};const redelivered=mergeAssistantDraftsResult(unmarked,[row],'owner');assert.equal(redelivered.state.documents.length,1);assert.equal(redelivered.state.documents[0].title,'Edited on phone');
+assert.equal(mergeAssistantDraftsResult(SEED,[row],'other').added,0,'cross-account rows rejected');
+const bad=structuredClone(row);bad.payload.document.items[0].unitPrice=-5;const invalid=mergeAssistantDraftsResult(SEED,[bad],'owner');assert.equal(invalid.added,0);assert.equal(invalid.state,SEED,'invalid data must not add orphan client/job');
+const sent=structuredClone(row);sent.payload.document.status='sent';assert.equal(mergeAssistantDraftsResult(SEED,[sent],'owner').added,0);
+const sameClient={...SEED,customers:[{id:'existing-client',name:'Test Customer',email:'saved@example.invalid',phone:'123',address:'Saved address'}],documents:[{...r.state.documents[0],id:'local-estimate',number:'EST-0040',assistantDraftId:undefined}]};const reuse=mergeAssistantDraftsResult(sameClient,[row],'owner').state;assert.equal(reuse.customers.length,1);assert.equal(reuse.jobs[0].customerId,'existing-client');assert.equal(reuse.documents[1].billTo.email,'saved@example.invalid');assert.equal(reuse.documents[1].number,'EST-0041');
+console.log('PASS: automatic draft merge, account isolation, validation, numbering, client reuse, duplicate delivery and preserved phone edits.');

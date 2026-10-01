@@ -25,3 +25,5 @@ The main installed TestFlight app is unchanged until a new signed build is uploa
 Browser-rendered home preview (393 × 852; native device verification still required):
 
 ![Home preview](home-preview.png)
+
+Assistant draft delivery update: data tests pass for append-only merging, rejected wrong-owner rows, atomic rejection of bad payloads, deduplication after reload, retained phone edits, exact-name client reuse and sequential document numbering. A local browser simulation with fabricated auth and inbox responses verifies automatic receive, visible $3,300 estimate and duplicate-free reload; it does not use a real session or send requests to Supabase. Live SQL tests verify the intended owner sees one queued draft, another account sees zero, anonymous SELECT is denied and authenticated INSERT is denied. Signed iOS installation and actual device receipt are still required.

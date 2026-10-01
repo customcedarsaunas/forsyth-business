@@ -1,0 +1,9 @@
+# Creating drafts from ChatGPT
+
+Use the user's connected Supabase tools to save to `public.assistant_drafts` in the Forsyth Business App project. Resolve the intended Supabase account from the user's identified app account; never guess an owner from a different service login. Write one immutable row with `user_id`, a stable `request_key`, and a JSON `payload` containing `customer`, `job` and `document`. The unique `(user_id, request_key)` makes a repeated request idempotent. Check the existing row before writing; do not overwrite a previously queued draft silently.
+
+The document must have `status: draft`, `type: estimate` or `invoice`, a valid `brandId`, `date` (`YYYY-MM-DD`), `title`, and `items`. Each item supplies `description`, nonnegative numeric `qty`, `unitPrice`, optional `internalCost`, `unit`, optional `notes`, and `taxCode` (`GST`, `PST`, `GST_PST`, `EXEMPT`). Supply payment-plan percentages totaling 100 and an optional deposit percentage. Customer supplies `name` and optional email, phone, address, notes. Job supplies `name`, matching `brandId`, optional site/notes/budget. The phone generates local record IDs and a local document number. It reuses a unique exact-name client match without changing saved contact information.
+
+Never claim a draft is in the installed app based only on database insertion. The app must be updated and signed into the owning account. Verify the phone shows the draft. Creating a draft does not authorize sending it. No customer delivery action is implemented by this inbox.
+
+Runtime tests: `node tests/drafts.test.mjs` covers isolation, invalid-payload atomicity, duplicate delivery, preserved edits, existing clients and numbering. Database RLS and grants are checked separately. The public repository contains no account IDs, private queued drafts or customer data.

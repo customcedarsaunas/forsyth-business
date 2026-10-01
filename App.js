@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
-import {SafeAreaView,KeyboardAvoidingView,Platform,AppState,View,Image,Text,ScrollView,TouchableOpacity,Modal,Alert,StyleSheet,StatusBar} from "react-native";
-import {mergeAssistantDrafts} from './src/lib/assistantDrafts';
+import {SafeAreaView,KeyboardAvoidingView,Platform,View,Image,Text,ScrollView,TouchableOpacity,Modal,Alert,StyleSheet,StatusBar} from "react-native";
+import {DraftSync} from "./src/components/DraftSync";
 import {BackupPanel} from "./src/components/BackupPanel";
 import {cloud,backupState,restoreState} from "./src/lib/cloud";
 import {Contact} from "expo-contacts";
@@ -16,7 +16,7 @@ const TABS=["Home","Invoices","Estimates","Expenses","Tax","More"];
 const today=()=>new Date().toISOString().slice(0,10);
 
 export default function App(){
-  const [state,setState]=useState(null),[tab,setTab]=useState("Home"),[modal,setModal]=useState(null),[cloudStatus,setCloudStatus]=useState("Automatic backup is off"),[cloudIsBusy,setCloudIsBusy]=useState(false),[draftSyncStatus,setDraftSyncStatus]=useState("Checking assistant drafts…");
+  const [state,setState]=useState(null),[tab,setTab]=useState("Home"),[modal,setModal]=useState(null),[cloudStatus,setCloudStatus]=useState("Automatic backup is off"),[cloudIsBusy,setCloudIsBusy]=useState(false);
  const cloudPending=useRef(null),cloudRunning=useRef(false),cloudEnabled=useRef(null);
  cloudEnabled.current=state?.cloudBackupUserId||null;
   useEffect(()=>{loadState().then(setState)},[]);
@@ -34,54 +34,17 @@ export default function App(){
    return()=>clearTimeout(timer);
   },[state]);
 
-
-  const stateRef=useRef(state), draftRunning=useRef(false);
-  stateRef.current=state;
-  useEffect(()=>{
-   if(!state)return;
-   let disposed=false;
-   const sync=async()=>{
-    if(disposed||draftRunning.current||AppState.currentState==='background')return;
-    draftRunning.current=true;
-    try{
-     const {data:sessionData,error:sessionError}=await cloud.auth.getSession();
-     if(sessionError)throw sessionError;
-     if(!sessionData.session){if(!disposed)setDraftSyncStatus('Sign in under Backup & Export to receive assistant drafts.');return;}
-     const {data:auth,error:authError}=await cloud.auth.getUser();
-     if(authError)throw authError;
-     const userId=auth.user.id;
-     const {data:rows,error}=await cloud.from('assistant_drafts').select('id,user_id,payload').eq('user_id',userId).order('created_at',{ascending:true});
-     if(error)throw error;
-     const {data:latest}=await cloud.auth.getSession();
-     if(disposed||latest.session?.user?.id!==userId)return;
-     // Functional update preserves edits made while the network request was running.
-     setState(current=>{
-      try{return mergeAssistantDrafts(current,rows||[],userId);}
-      catch(e){return current;}
-     });
-     // Validate against the current snapshot so errors are visible, not silently lost.
-     mergeAssistantDrafts(stateRef.current,rows||[],userId);
-     if(!disposed)setDraftSyncStatus('Assistant drafts connected');
-    }catch(e){if(!disposed)setDraftSyncStatus('Assistant drafts: '+String(e.message||e));}
-    finally{draftRunning.current=false;}
-   };
-   sync();
-   const timer=setInterval(sync,15000);
-   const lifecycle=AppState.addEventListener('change',s=>{if(s==='active')sync();});
-   const {data:listener}=cloud.auth.onAuthStateChange(()=>{setTimeout(sync,0);});
-   return()=>{disposed=true;clearInterval(timer);lifecycle.remove();listener.subscription.unsubscribe();};
-  },[!!state]);
-
   if(!state) return <SafeAreaView style={styles.center}><Text>Loading Forsyth Business…</Text></SafeAreaView>;
   const brand=state.brands.find(b=>b.id===state.activeBrandId)||state.brands[0];
   const outstanding=state.documents.filter(d=>d.type==="invoice"&&d.status!=="void").reduce((sum,d)=>sum+Math.max(0,documentTotals(d,state.settings).balance),0);
   return <SafeAreaView style={styles.safe}>
     <StatusBar barStyle="dark-content"/>
+    <DraftSync setState={setState}/>
     <View style={styles.owedBar}><Text style={styles.owedLabel}>TOTAL OWED TO YOU</Text><Text style={styles.owedAmount}>{money(outstanding)}</Text></View>
     <View style={styles.header}><View style={{flex:1}}><Image source={brand.logoUri?{uri:brand.logoUri}:brand.id==="sauna"?require("./assets/sauna.png"):require("./assets/jfe.png")} style={{width:76,height:64,backgroundColor:"#fff",borderRadius:10,marginBottom:12}} resizeMode="contain"/><Text style={styles.brandName}>{tab==="Home"?brand.displayName:tab}</Text><Text style={styles.brandTag}>{tab==="Home"?brand.division:brand.displayName}</Text></View>
       <TouchableOpacity onPress={()=>setModal({kind:"brand"})} style={styles.switch}><Text style={styles.switchTxt}>Switch</Text></TouchableOpacity></View>
     <ScrollView key={tab} contentContainerStyle={styles.content}>
-      {tab==="Home"&&<Home state={state} setModal={setModal} setTab={setTab} cloudStatus={cloudStatus} draftSyncStatus={draftSyncStatus}/>}
+      {tab==="Home"&&<Home state={state} setModal={setModal} setTab={setTab} cloudStatus={cloudStatus}/>}
       {tab==="Clients"&&<Clients state={state} setModal={setModal}/>}
       {tab==="Jobs"&&<Jobs state={state} setModal={setModal}/>}
       {(tab==="Invoices"||tab==="Estimates")&&<Sales state={state} setState={setState} setModal={setModal} type={tab==="Invoices"?"invoice":"estimate"}/>}
@@ -96,7 +59,7 @@ export default function App(){
   </SafeAreaView>
 }
 
-function Home({state,setModal,setTab,draftSyncStatus}){
+function Home({state,setModal,setTab}){
  const brand=state.brands.find(b=>b.id===state.activeBrandId)||state.brands[0];
  const brandJobs=new Set(state.jobs.filter(j=>j.brandId===brand.id).map(j=>j.id));
  const invoices=state.documents.filter(d=>d.type==="invoice"&&brandJobs.has(d.jobId));
@@ -237,11 +200,11 @@ function CloudPanel({state,setState,cloudStatus,cloudBusy}){
  const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[user,setUser]=useState(null),[busy,setBusy]=useState(false),[status,setStatus]=useState("");
  useEffect(()=>{let active=true;cloud.auth.getSession().then(({data})=>{if(active)setUser(data.session?.user||null)});const {data:{subscription}}=cloud.auth.onAuthStateChange((_event,session)=>setUser(session?.user||null));return()=>{active=false;subscription.unsubscribe()}},[]);
  const run=async(fn)=>{setBusy(true);try{await fn()}catch(error){setStatus(String(error.message||error));Alert.alert("Cloud action failed",String(error.message||error))}finally{setBusy(false)}};
- const login=()=>run(async()=>{const {error}=await cloud.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;setPassword("");setStatus("Signed in. Local records stay on this device until you choose Backup or Restore.")});
+ const login=()=>run(async()=>{const {error}=await cloud.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;setPassword("");setStatus("Signed in. Assistant drafts will appear automatically in Invoices or Estimates.")});
  const signup=()=>run(async()=>{const {data,error}=await cloud.auth.signUp({email:email.trim(),password});if(error)throw error;setPassword("");setStatus(data.session?"Account created and signed in.":"Check your email to confirm your account, then sign in.")});
  const backup=()=>{if(cloudBusy)return;run(async()=>{await backupState(state);setStatus("Native app backup saved.")});};
  const restore=()=>{if(cloudBusy||state.cloudBackupUserId||cloudStatus==="Saving cloud backup…")return Alert.alert("Turn off automatic backup first","Wait until the save finishes before restoring.");Alert.alert("Restore cloud backup?","This replaces the records currently on this device. Existing prototype records are stored separately.",[{text:"Cancel",style:"cancel"},{text:"Restore",onPress:()=>run(async()=>{const restored=await restoreState();await saveState(restored);setState(restored);setStatus("Native app backup restored.")})}]);};
- return <><H2>Cloud account</H2><Card>{user?<><Small>Signed in as {user.email}</Small><Small>{cloudStatus}</Small><View style={{height:10}}/><Button title={state.cloudBackupUserId===user.id?"Turn off automatic backup":"Turn on automatic backup"} kind="soft" disabled={busy} onPress={()=>{if(state.cloudBackupUserId===user.id)setState({...state,cloudBackupUserId:null});else Alert.alert("Enable automatic backup?","The records on this device will replace this account’s native cloud backup. Restore an existing backup first if you need it.",[{text:"Cancel",style:"cancel"},{text:"Enable",onPress:()=>setState({...state,cloudBackupUserId:user.id})}])}}/><View style={{height:12}}/><Button title="Back up to cloud" disabled={busy} onPress={backup}/><View style={{height:10}}/><Button title="Restore cloud backup" kind="soft" disabled={busy} onPress={restore}/><View style={{height:10}}/><Button title="Sign out" kind="soft" disabled={busy} onPress={()=>run(async()=>{setState({...state,cloudBackupUserId:null});const {error}=await cloud.auth.signOut();if(error)throw error;setStatus("Signed out. Local app records remain on this device.")})}/></>:<><Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"/><Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none"/><Button title="Sign in" disabled={busy} onPress={login}/><View style={{height:10}}/><Button title="Create account" kind="soft" disabled={busy} onPress={signup}/></>}{status?<Small style={{marginTop:12}}>{status}</Small>:null}<Small style={{marginTop:12}}>Automatic backup uploads this device’s records when enabled. Restore is manual. Prototype records are separate.</Small></Card></>;
+ return <><H2>Cloud account</H2><Card>{user?<><Small>Signed in as {user.email}</Small><Small>{cloudStatus}</Small><View style={{height:10}}/><Button title={state.cloudBackupUserId===user.id?"Turn off automatic backup":"Turn on automatic backup"} kind="soft" disabled={busy} onPress={()=>{if(state.cloudBackupUserId===user.id)setState({...state,cloudBackupUserId:null});else Alert.alert("Enable automatic backup?","The records on this device will replace this account’s native cloud backup. Restore an existing backup first if you need it.",[{text:"Cancel",style:"cancel"},{text:"Enable",onPress:()=>setState({...state,cloudBackupUserId:user.id})}])}}/><View style={{height:12}}/><Button title="Back up to cloud" disabled={busy} onPress={backup}/><View style={{height:10}}/><Button title="Restore cloud backup" kind="soft" disabled={busy} onPress={restore}/><View style={{height:10}}/><Button title="Sign out" kind="soft" disabled={busy} onPress={()=>run(async()=>{setState({...state,cloudBackupUserId:null});const {error}=await cloud.auth.signOut();if(error)throw error;setStatus("Signed out. Local app records remain on this device.")})}/></>:<><Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"/><Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none"/><Button title="Sign in" disabled={busy} onPress={login}/><View style={{height:10}}/><Button title="Create account" kind="soft" disabled={busy} onPress={signup}/></>}{status?<Small style={{marginTop:12}}>{status}</Small>:null}<Small style={{marginTop:12}}>Assistant drafts download automatically while signed in. They remain drafts until you review them. Automatic backup is separate; restoring a full backup is manual.</Small></Card></>;
 }
 
 function ModalRouter({state,setState,modal,close}){
