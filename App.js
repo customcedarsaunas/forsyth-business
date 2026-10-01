@@ -13,19 +13,20 @@ const TABS=["Home","Invoices","Estimates","Expenses","Tax","More"];
 const today=()=>new Date().toISOString().slice(0,10);
 
 export default function App(){
-  const [state,setState]=useState(null),[tab,setTab]=useState("Home"),[modal,setModal]=useState(null),[cloudStatus,setCloudStatus]=useState("Automatic backup is off");
- const cloudPending=useRef(null),cloudRunning=useRef(false);
+  const [state,setState]=useState(null),[tab,setTab]=useState("Home"),[modal,setModal]=useState(null),[cloudStatus,setCloudStatus]=useState("Automatic backup is off"),[cloudIsBusy,setCloudIsBusy]=useState(false);
+ const cloudPending=useRef(null),cloudRunning=useRef(false),cloudEnabled=useRef(null);
+ cloudEnabled.current=state?.cloudBackupUserId||null;
   useEffect(()=>{loadState().then(setState)},[]);
-  useEffect(()=>{if(state)saveState(state)},[state]);
+  useEffect(()=>{if(state)saveState(state).catch(error=>Alert.alert("Could not save on this device",String(error.message||error)))},[state]);
   useEffect(()=>{
    if(!state?.cloudBackupUserId){cloudPending.current=null;setCloudStatus("Automatic backup is off");return;}
    const timer=setTimeout(async()=>{
     cloudPending.current=state;
     if(cloudRunning.current)return;
-    cloudRunning.current=true;
-    try{while(cloudPending.current){const next=cloudPending.current;cloudPending.current=null;setCloudStatus("Saving cloud backup…");await backupState(next,next.cloudBackupUserId);}setCloudStatus("Cloud backup saved");}
+    cloudRunning.current=true;setCloudIsBusy(true);
+    try{while(cloudPending.current){const next=cloudPending.current;cloudPending.current=null;setCloudStatus("Saving cloud backup…");await backupState(next,next.cloudBackupUserId);}setCloudStatus(cloudEnabled.current?"Cloud backup saved":"Automatic backup is off");}
     catch(error){cloudPending.current=null;setCloudStatus("Cloud backup failed: "+String(error.message||error));}
-    finally{cloudRunning.current=false;setCloudStatus(previous=>previous);}
+    finally{cloudRunning.current=false;setCloudIsBusy(false);}
    },1000);
    return()=>clearTimeout(timer);
   },[state]);
@@ -45,7 +46,7 @@ export default function App(){
       {tab==="Expenses"&&<Expenses state={state} setModal={setModal}/>}
       {tab==="Mileage"&&<Mileage state={state} setState={setState} setModal={setModal}/>}
       {tab==="Tax"&&<Reports state={state}/>}
-      {tab==="More"&&<More state={state} setState={setState} setModal={setModal} setTab={setTab} cloudStatus={cloudStatus} cloudBusy={cloudRunning.current}/>}
+      {tab==="More"&&<More state={state} setState={setState} setModal={setModal} setTab={setTab} cloudStatus={cloudStatus} cloudBusy={cloudIsBusy}/>}
     </ScrollView>
     <View style={styles.nav}>{TABS.map(x=><TouchableOpacity key={x} style={styles.navCell} onPress={()=>setTab(x)}><Text style={[styles.navText,tab===x&&styles.navOn]}>{x}</Text></TouchableOpacity>)}</View>
     {modal&&<ModalRouter state={state} setState={setState} modal={modal} close={()=>setModal(null)}/>}

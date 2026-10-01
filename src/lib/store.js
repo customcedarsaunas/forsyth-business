@@ -9,5 +9,6 @@ export async function loadState(){
     return d.schemaVersion===SEED.schemaVersion?d:{...JSON.parse(JSON.stringify(SEED)),...d,schemaVersion:SEED.schemaVersion};
   }catch{return JSON.parse(JSON.stringify(SEED));}
 }
-export async function saveState(s){ await AsyncStorage.setItem(KEY,JSON.stringify(s)); }
+let saveQueue=Promise.resolve();
+export function saveState(state){const snapshot=JSON.stringify(state);const write=saveQueue.catch(()=>{}).then(()=>AsyncStorage.setItem(KEY,snapshot));saveQueue=write;return write;}
 export async function resetState(){ await AsyncStorage.removeItem(KEY); }
