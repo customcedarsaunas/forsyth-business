@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
 import {SafeAreaView,View,Text,ScrollView,TouchableOpacity,Modal,Alert,StyleSheet,StatusBar} from "react-native";
+import {cloud,backupState,restoreState} from "./src/lib/cloud";
 import {Contact} from "expo-contacts";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
@@ -150,8 +151,19 @@ function More({state,setState,setModal,setTab}){
  <H2>Pricing defaults</H2><Card><Row label="Your labour" value={`${money(state.settings.labourRate)}/hr`}/><Row label="Helper" value={`${money(state.settings.helperRate)}/hr`}/><Row label="Material markup" value={`${state.settings.defaultMaterialMarkupPct}%`}/><Row label="Mileage value" value={`${money(state.settings.mileageRate)}/km`}/></Card>
  <H2>Catalog & vendors</H2><Card><Row label="Reusable products/services" value={String(state.catalog.length)}/><Row label="Vendors" value={String(state.vendors.length)}/><Small>Catalog stores selling price, internal cost, tax treatment and supplier separately so customer PDFs never expose your cost.</Small></Card>
  <H2>Banking</H2><Card><Text style={styles.cardTitle}>Secure bank feed adapter</Text><Small>The UI/data model is ready for imported bank transactions and reconciliation. A live Canadian bank connection requires a server-side banking provider and your consent; credentials will never be stored in the app source.</Small></Card>
- <H2>Backups & safety</H2><Card><Button title="Reset demo/local data" kind="danger" onPress={()=>Alert.alert("Reset app?","This deletes local app data.",[{text:"Cancel"},{text:"Reset",style:"destructive",onPress:async()=>{await resetState(); const x=await loadState();setState(x)}}])}/></Card>
+ <CloudPanel state={state} setState={setState}/><H2>Backups & safety</H2><Card><Button title="Reset demo/local data" kind="danger" onPress={()=>Alert.alert("Reset app?","This deletes local app data.",[{text:"Cancel"},{text:"Reset",style:"destructive",onPress:async()=>{await resetState(); const x=await loadState();setState(x)}}])}/></Card>
  </>;
+}
+
+function CloudPanel({state,setState}){
+ const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[user,setUser]=useState(null),[busy,setBusy]=useState(false),[status,setStatus]=useState("");
+ useEffect(()=>{let active=true;cloud.auth.getSession().then(({data})=>{if(active)setUser(data.session?.user||null)});const {data:{subscription}}=cloud.auth.onAuthStateChange((_event,session)=>setUser(session?.user||null));return()=>{active=false;subscription.unsubscribe()}},[]);
+ const run=async(fn)=>{setBusy(true);try{await fn()}catch(error){setStatus(String(error.message||error));Alert.alert("Cloud action failed",String(error.message||error))}finally{setBusy(false)}};
+ const login=()=>run(async()=>{const {error}=await cloud.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;setPassword("");setStatus("Signed in. Local records stay on this device until you choose Backup or Restore.")});
+ const signup=()=>run(async()=>{const {data,error}=await cloud.auth.signUp({email:email.trim(),password});if(error)throw error;setPassword("");setStatus(data.session?"Account created and signed in.":"Check your email to confirm your account, then sign in.")});
+ const backup=()=>run(async()=>{await backupState(state);setStatus("Native app backup saved.")});
+ const restore=()=>Alert.alert("Restore cloud backup?","This replaces the records currently on this device. Existing prototype records are stored separately.",[{text:"Cancel",style:"cancel"},{text:"Restore",onPress:()=>run(async()=>{const restored=await restoreState();await saveState(restored);setState(restored);setStatus("Native app backup restored.")})}]);
+ return <><H2>Cloud account</H2><Card>{user?<><Small>Signed in as {user.email}</Small><View style={{height:12}}/><Button title="Back up to cloud" disabled={busy} onPress={backup}/><View style={{height:10}}/><Button title="Restore cloud backup" kind="soft" disabled={busy} onPress={restore}/><View style={{height:10}}/><Button title="Sign out" kind="soft" disabled={busy} onPress={()=>run(async()=>{const {error}=await cloud.auth.signOut();if(error)throw error;setStatus("Signed out. Local app records remain on this device.")})}/></>:<><Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"/><Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none"/><Button title="Sign in" disabled={busy} onPress={login}/><View style={{height:10}}/><Button title="Create account" kind="soft" disabled={busy} onPress={signup}/></>}{status?<Small style={{marginTop:12}}>{status}</Small>:null}<Small style={{marginTop:12}}>Backup and restore are manual. Prototype records are separate.</Small></Card></>;
 }
 
 function ModalRouter({state,setState,modal,close}){
