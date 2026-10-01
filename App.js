@@ -41,6 +41,7 @@ export default function App(){
       <TouchableOpacity onPress={()=>setModal({kind:"brand"})} style={styles.switch}><Text style={styles.switchTxt}>Switch</Text></TouchableOpacity></View>
     <ScrollView contentContainerStyle={styles.content}>
       {tab==="Home"&&<Home state={state} setModal={setModal} setTab={setTab} cloudStatus={cloudStatus}/>}
+      {tab==="Clients"&&<Clients state={state} setModal={setModal}/>}
       {tab==="Jobs"&&<Jobs state={state} setModal={setModal}/>}
       {(tab==="Invoices"||tab==="Estimates")&&<Sales state={state} setState={setState} setModal={setModal} type={tab==="Invoices"?"invoice":"estimate"}/>}
       {tab==="Expenses"&&<Expenses state={state} setModal={setModal}/>}
@@ -69,6 +70,9 @@ function Home({state,setModal,setTab}){
   <View style={{gap:18,marginTop:8}}>
    <TouchableOpacity style={styles.primaryHomeAction} onPress={()=>setModal({kind:"doc",type:"invoice"})}><Text style={styles.homeActionText}>+ New Invoice</Text></TouchableOpacity>
    <TouchableOpacity style={styles.secondaryHomeAction} onPress={()=>setModal({kind:"doc",type:"estimate"})}><Text style={styles.homeSecondaryText}>+ New Estimate</Text></TouchableOpacity>
+   <TouchableOpacity style={styles.secondaryHomeAction} onPress={()=>setTab("Clients")}><Text style={styles.homeSecondaryText}>Clients & History</Text></TouchableOpacity>
+   <TouchableOpacity style={styles.secondaryHomeAction} onPress={()=>setTab("Jobs")}><Text style={styles.homeSecondaryText}>Job Profitability</Text></TouchableOpacity>
+   <TouchableOpacity style={styles.secondaryHomeAction} onPress={()=>setTab("More")}><Text style={styles.homeSecondaryText}>Backup & Export</Text></TouchableOpacity>
    <TouchableOpacity style={styles.secondaryHomeAction} onPress={()=>setModal({kind:"brand"})}><Text style={styles.homeSecondaryText}>Switch Company</Text></TouchableOpacity>
   </View>
  </>;
@@ -92,13 +96,22 @@ function JobCard({state,job,detailed}){
 const Mini=({l,v})=><View style={{flex:1}}><Small>{l}</Small><Text style={{fontWeight:"900",fontSize:15,marginTop:3}}>{v}</Text></View>;
 
 function Sales({state,setState,setModal,type}){
- return <><H1>{type==="invoice"?"Invoices":"Estimates"}</H1><Small>Estimates → acceptance → deposits → change orders → progress/final invoices.</Small>
- <View style={[styles.actions,{marginTop:14}]}><Action t="+ Invoice" f={()=>setModal({kind:"doc",type:"invoice"})}/><Action t="+ Estimate" f={()=>setModal({kind:"doc",type:"estimate"})}/><Action t="+ Change" f={()=>setModal({kind:"doc",type:"change_order"})}/></View>
- <H2>Documents</H2>
- {state.documents.filter(d=>d.type===type&&d.brandId===state.activeBrandId).slice().reverse().map(d=><DocumentCard key={d.id} d={d} state={state} setState={setState} setModal={setModal}/>)}</>;
+ const [query,setQuery]=useState(""),[filter,setFilter]=useState("all");
+ const docs=state.documents.filter(d=>{if(d.type!==type||d.brandId!==state.activeBrandId)return false;const job=state.jobs.find(j=>j.id===d.jobId),customer=state.customers.find(c=>c.id===job?.customerId);if(![d.number,d.title,job?.name,customer?.name].join(" ").toLowerCase().includes(query.toLowerCase()))return false;if(filter==="archived")return !!d.archived;if(d.archived)return false;if(filter==="paid")return type==="invoice"?documentTotals(d,state.settings).balance<=0:d.status==="accepted";if(filter==="outstanding")return type==="invoice"?documentTotals(d,state.settings).balance>0:d.status!=="accepted";return true});
+ return <><H1>{type==="invoice"?"Invoices":"Estimates"}</H1><Field label="Search" value={query} onChangeText={setQuery} placeholder="Customer, job or document number"/>
+ <View style={styles.wrap}>{["all","outstanding","paid","archived"].map(f=><Chip key={f} text={f==="outstanding"&&type==="estimate"?"Open":f==="paid"&&type==="estimate"?"Accepted":f} active={filter===f} onPress={()=>setFilter(f)}/>)}</View>
+ <View style={[styles.actions,{marginTop:14}]}><Action t={type==="invoice"?"+ Invoice":"+ Estimate"} f={()=>setModal({kind:"doc",type})}/></View><H2>Documents</H2>
+ {docs.slice().reverse().map(d=><DocumentCard key={d.id} d={d} state={state} setState={setState} setModal={setModal}/>)}{!docs.length&&<Small>No matching documents.</Small>}</>;
 }
+function Clients({state,setModal}){
+ const [query,setQuery]=useState("");
+ return <><H1>Clients & History</H1><Field label="Search clients" value={query} onChangeText={setQuery}/>{state.customers.filter(c=>[c.name,c.email,c.phone].join(" ").toLowerCase().includes(query.toLowerCase())).map(c=>{const jobs=new Set(state.jobs.filter(j=>j.customerId===c.id&&j.brandId===state.activeBrandId).map(j=>j.id));const docs=state.documents.filter(d=>jobs.has(d.jobId));return <Card key={c.id}><H2>{c.name}</H2><Small>{c.phone}</Small><Small>{c.email}</Small><Small>{c.address}</Small>{docs.map(d=><Button key={d.id} title={`${d.number} · ${d.title}`} kind="soft" onPress={()=>setModal({kind:"doc",type:d.type,id:d.id})}/>)}</Card>})}</>;
+}
+
 function DocumentCard({d,state,setState,setModal}){
  const [paymentAmount,setPaymentAmount]=useState("");
+ const duplicate=()=>{const prefix=d.type==="invoice"?state.settings.invoicePrefix:state.settings.estimatePrefix;const n=state.documents.filter(x=>x.type===d.type).length+1;const copy={...JSON.parse(JSON.stringify(d)),id:String(Date.now()),number:`${prefix}-${String(n).padStart(4,"0")}`,date:today(),status:"draft",payments:[],archived:false};setState({...state,documents:[...state.documents,copy]})};
+ const archive=()=>setState({...state,documents:state.documents.map(x=>x.id===d.id?{...x,archived:!x.archived}:x)});
  const recordPayment=()=>{const amount=Number(paymentAmount);const balance=documentTotals(d,state.settings).balance;if(!Number.isFinite(amount)||amount<=0||amount>balance)return Alert.alert("Check payment","Enter a positive payment no larger than the balance.");const payments=[...(d.payments||[]),{id:String(Date.now()),date:today(),amount}];const updated={...d,payments,status:amount>=balance?"paid":"partial"};setState({...state,documents:state.documents.map(x=>x.id===d.id?updated:x)});setPaymentAmount("")};
  const job=state.jobs.find(j=>j.id===d.jobId),c=state.customers.find(x=>x.id===job?.customerId),t=documentTotals(d,state.settings);
  const statusTone=d.status==="paid"?"good":d.status==="draft"?"warn":"neutral";
@@ -115,7 +128,7 @@ function DocumentCard({d,state,setState,setModal}){
   <Text style={styles.bigMoney}>{money(t.total)}</Text><Small>Subtotal {money(t.subtotal)} · GST {money(t.gst)} · PST {money(t.pst)}</Small>
   {d.type==="invoice"&&<Small>Paid {money(t.paid)} · Balance {money(t.balance)}</Small>}
   {d.type==="invoice"&&t.balance>0&&<><Field label="Payment received" value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="decimal-pad"/><Button title="Record payment" kind="soft" onPress={recordPayment}/></>}
-  <View style={styles.inlineButtons}><Button title="Edit" kind="soft" small onPress={()=>setModal({kind:"doc",type:d.type,id:d.id})}/><Button title="PDF / Share" kind="soft" small onPress={doShare}/>{d.status==="draft"&&<Button title="Mark sent" small onPress={markSent}/>}
+  <View style={styles.inlineButtons}><Button title="Duplicate" kind="soft" small onPress={duplicate}/><Button title={d.archived?"Restore":"Archive"} kind="soft" small onPress={archive}/><Button title="Edit" kind="soft" small onPress={()=>setModal({kind:"doc",type:d.type,id:d.id})}/><Button title="PDF / Share" kind="soft" small onPress={doShare}/>{d.status==="draft"&&<Button title="Mark sent" small onPress={markSent}/>}
    {d.type==="estimate"&&d.status==="sent"&&<Button title="Accept" small onPress={accept}/>}
    {d.type==="estimate"&&d.status==="accepted"&&<Button title="Make invoice" small onPress={invoiceFromEstimate}/>}</View>
  </Card>
@@ -161,7 +174,7 @@ function Reports({state}){
 }
 
 function More({state,setState,setModal,setTab,cloudStatus,cloudBusy}){
- return <><H1>More</H1><View style={styles.actions}><Action t="Jobs" f={()=>setTab("Jobs")}/><Action t="Mileage" f={()=>setTab("Mileage")}/><Action t="Assistant" f={()=>setModal({kind:"assistant"})}/></View>
+ return <><H1>More</H1><View style={styles.actions}><Action t="Clients" f={()=>setTab("Clients")}/><Action t="Jobs" f={()=>setTab("Jobs")}/><Action t="Mileage" f={()=>setTab("Mileage")}/><Action t="Assistant" f={()=>setModal({kind:"assistant"})}/></View>
  <H2>Business profiles</H2>{state.brands.map(b=><Card key={b.id}><View style={styles.space}><View style={{flex:1}}><Text style={styles.cardTitle}>{b.displayName}</Text><Small>{b.legalName}</Small><Small>GST/HST {b.gstNumber||"—"} · PST {b.pstNumber||"not entered"}</Small></View><Button title="Edit" kind="soft" small onPress={()=>setModal({kind:"brandEdit",id:b.id})}/></View></Card>)}
  <H2>Pricing defaults</H2><Card><Row label="Your labour" value={`${money(state.settings.labourRate)}/hr`}/><Row label="Helper" value={`${money(state.settings.helperRate)}/hr`}/><Row label="Material markup" value={`${state.settings.defaultMaterialMarkupPct}%`}/><Row label="Mileage value" value={`${money(state.settings.mileageRate)}/km`}/></Card>
  <H2>Catalog & vendors</H2><Card><Row label="Reusable products/services" value={String(state.catalog.length)}/><Row label="Vendors" value={String(state.vendors.length)}/><Small>Catalog stores selling price, internal cost, tax treatment and supplier separately so customer PDFs never expose your cost.</Small></Card>
