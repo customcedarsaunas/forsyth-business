@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
-import {SafeAreaView,KeyboardAvoidingView,Platform,View,Image,Text,ScrollView,TouchableOpacity,Modal,Alert,StyleSheet,StatusBar} from "react-native";
+import {SafeAreaView,KeyboardAvoidingView,Platform,AppState,View,Image,Text,ScrollView,TouchableOpacity,Modal,Alert,StyleSheet,StatusBar} from "react-native";
+import {mergeAssistantDrafts} from './src/lib/assistantDrafts';
 import {BackupPanel} from "./src/components/BackupPanel";
 import {cloud,backupState,restoreState} from "./src/lib/cloud";
 import {Contact} from "expo-contacts";
@@ -15,7 +16,7 @@ const TABS=["Home","Invoices","Estimates","Expenses","Tax","More"];
 const today=()=>new Date().toISOString().slice(0,10);
 
 export default function App(){
-  const [state,setState]=useState(null),[tab,setTab]=useState("Home"),[modal,setModal]=useState(null),[cloudStatus,setCloudStatus]=useState("Automatic backup is off"),[cloudIsBusy,setCloudIsBusy]=useState(false);
+  const [state,setState]=useState(null),[tab,setTab]=useState("Home"),[modal,setModal]=useState(null),[cloudStatus,setCloudStatus]=useState("Automatic backup is off"),[cloudIsBusy,setCloudIsBusy]=useState(false),[draftSyncStatus,setDraftSyncStatus]=useState("Checking assistant drafts…");
  const cloudPending=useRef(null),cloudRunning=useRef(false),cloudEnabled=useRef(null);
  cloudEnabled.current=state?.cloudBackupUserId||null;
   useEffect(()=>{loadState().then(setState)},[]);
@@ -33,6 +34,44 @@ export default function App(){
    return()=>clearTimeout(timer);
   },[state]);
 
+
+  const stateRef=useRef(state), draftRunning=useRef(false);
+  stateRef.current=state;
+  useEffect(()=>{
+   if(!state)return;
+   let disposed=false;
+   const sync=async()=>{
+    if(disposed||draftRunning.current||AppState.currentState==='background')return;
+    draftRunning.current=true;
+    try{
+     const {data:sessionData,error:sessionError}=await cloud.auth.getSession();
+     if(sessionError)throw sessionError;
+     if(!sessionData.session){if(!disposed)setDraftSyncStatus('Sign in under Backup & Export to receive assistant drafts.');return;}
+     const {data:auth,error:authError}=await cloud.auth.getUser();
+     if(authError)throw authError;
+     const userId=auth.user.id;
+     const {data:rows,error}=await cloud.from('assistant_drafts').select('id,user_id,payload').eq('user_id',userId).order('created_at',{ascending:true});
+     if(error)throw error;
+     const {data:latest}=await cloud.auth.getSession();
+     if(disposed||latest.session?.user?.id!==userId)return;
+     // Functional update preserves edits made while the network request was running.
+     setState(current=>{
+      try{return mergeAssistantDrafts(current,rows||[],userId);}
+      catch(e){return current;}
+     });
+     // Validate against the current snapshot so errors are visible, not silently lost.
+     mergeAssistantDrafts(stateRef.current,rows||[],userId);
+     if(!disposed)setDraftSyncStatus('Assistant drafts connected');
+    }catch(e){if(!disposed)setDraftSyncStatus('Assistant drafts: '+String(e.message||e));}
+    finally{draftRunning.current=false;}
+   };
+   sync();
+   const timer=setInterval(sync,15000);
+   const lifecycle=AppState.addEventListener('change',s=>{if(s==='active')sync();});
+   const {data:listener}=cloud.auth.onAuthStateChange(()=>{setTimeout(sync,0);});
+   return()=>{disposed=true;clearInterval(timer);lifecycle.remove();listener.subscription.unsubscribe();};
+  },[!!state]);
+
   if(!state) return <SafeAreaView style={styles.center}><Text>Loading Forsyth Business…</Text></SafeAreaView>;
   const brand=state.brands.find(b=>b.id===state.activeBrandId)||state.brands[0];
   const outstanding=state.documents.filter(d=>d.type==="invoice"&&d.status!=="void").reduce((sum,d)=>sum+Math.max(0,documentTotals(d,state.settings).balance),0);
@@ -42,7 +81,7 @@ export default function App(){
     <View style={styles.header}><View style={{flex:1}}><Image source={brand.logoUri?{uri:brand.logoUri}:brand.id==="sauna"?require("./assets/sauna.png"):require("./assets/jfe.png")} style={{width:76,height:64,backgroundColor:"#fff",borderRadius:10,marginBottom:12}} resizeMode="contain"/><Text style={styles.brandName}>{tab==="Home"?brand.displayName:tab}</Text><Text style={styles.brandTag}>{tab==="Home"?brand.division:brand.displayName}</Text></View>
       <TouchableOpacity onPress={()=>setModal({kind:"brand"})} style={styles.switch}><Text style={styles.switchTxt}>Switch</Text></TouchableOpacity></View>
     <ScrollView key={tab} contentContainerStyle={styles.content}>
-      {tab==="Home"&&<Home state={state} setModal={setModal} setTab={setTab} cloudStatus={cloudStatus}/>}
+      {tab==="Home"&&<Home state={state} setModal={setModal} setTab={setTab} cloudStatus={cloudStatus} draftSyncStatus={draftSyncStatus}/>}
       {tab==="Clients"&&<Clients state={state} setModal={setModal}/>}
       {tab==="Jobs"&&<Jobs state={state} setModal={setModal}/>}
       {(tab==="Invoices"||tab==="Estimates")&&<Sales state={state} setState={setState} setModal={setModal} type={tab==="Invoices"?"invoice":"estimate"}/>}
@@ -57,7 +96,7 @@ export default function App(){
   </SafeAreaView>
 }
 
-function Home({state,setModal,setTab}){
+function Home({state,setModal,setTab,draftSyncStatus}){
  const brand=state.brands.find(b=>b.id===state.activeBrandId)||state.brands[0];
  const brandJobs=new Set(state.jobs.filter(j=>j.brandId===brand.id).map(j=>j.id));
  const invoices=state.documents.filter(d=>d.type==="invoice"&&brandJobs.has(d.jobId));
