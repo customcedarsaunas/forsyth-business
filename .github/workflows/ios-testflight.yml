@@ -13,6 +13,7 @@ on:
       - 'package-lock.json'
       - 'src/**'
       - 'assets/**'
+      - 'scripts/**'
       - '.github/workflows/ios-testflight.yml'
 
 concurrency:
@@ -35,6 +36,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Apply requested mobile form upgrades
+        run: node scripts/apply-mobile-form-upgrades.cjs
 
       - name: Run data tests
         run: node tests/data.test.mjs
