@@ -30,6 +30,12 @@
         }
       ],
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "db4b5a21-0328-4b9f-ba57-834bd14ad5ae"
+      }
+    },
+    "owner": "jforsythents-team"
   }
 }
