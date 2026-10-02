@@ -8,7 +8,7 @@
     "scheme": "forsythbusiness",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.johnforsyth.forsythbusiness",
+      "bundleIdentifier": "com.jforsyth.ent.forsyth-business",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Forsyth Business uses your location to track business mileage when you start a trip.",
         "NSPhotoLibraryUsageDescription": "Forsyth Business lets you attach receipt and job photos."
